@@ -6,10 +6,12 @@ Output: Compliance score, violations, recommendations
 """
 import json, os
 from .llm import call_gemini
-from ..utils.pdf_utils import load_vault_knowledge
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from utils.pdf_utils import load_vault_knowledge
 
 VAULT_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "vault"
 )
 

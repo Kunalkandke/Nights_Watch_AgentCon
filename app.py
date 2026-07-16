@@ -2,19 +2,19 @@
 MedComply AI — Healthcare Compliance & Governance Intelligence Agent
 AgentCon 2026 | Built on LegalAI platform
 
-Run: python medcompliance/app.py
+Run: python app.py
 Open: http://127.0.0.1:7000
 """
 
 import os, sys, json, uuid
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
-# ── path setup so we can import from parent ──────────────────────────────────
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ── path setup ────────────────────────────────────────────────────────────────
+ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from medcompliance.agents.workflow import run_compliance_workflow
-from medcompliance.utils.pdf_utils import extract_pdf_text
+from agents.workflow import run_compliance_workflow
+from utils.pdf_utils import extract_pdf_text
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), "templates"),
