@@ -1,4 +1,4 @@
-# MedComply AI 🏥
+# legal AI 🏥
 ### Healthcare Compliance & Governance Intelligence Agent
 **AgentCon 2026 — National AI Hackathon**
 *Theme: Building Enterprise AI Agents, ML Systems & Workflow Automation for Bharat*
