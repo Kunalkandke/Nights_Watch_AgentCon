@@ -13,6 +13,18 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+# Load .env from this folder or parent folder so GEMINI_API_KEY is available
+for _dir in [ROOT, os.path.dirname(ROOT)]:
+    _env = os.path.join(_dir, ".env")
+    if os.path.exists(_env):
+        with open(_env, "r", encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+        break
+
 from agents.workflow import run_compliance_workflow
 from utils.pdf_utils import extract_pdf_text
 
@@ -27,7 +39,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.route("/")
 def index():
-    return redirect(url_for("dashboard"))
+    return render_template("landing.html")
 
 
 @app.route("/dashboard")
@@ -66,11 +78,12 @@ def analyze():
     reports = session.get("reports", [])
     report_id = uuid.uuid4().hex[:8]
     reports.insert(0, {
-        "id":         report_id,
-        "doc_name":   doc_name,
-        "score":      result.get("compliance_score", 0),
-        "risk":       result.get("risk_level", "Unknown"),
-        "timestamp":  result.get("timestamp", ""),
+        "id":        report_id,
+        "doc_name":  doc_name,
+        "score":     result.get("compliance_score", 0),
+        "risk":      result.get("risk_level", "Unknown"),
+        "verdict":   result.get("audit_verdict", "Unknown"),
+        "timestamp": result.get("timestamp", ""),
     })
     session["reports"] = reports[:10]
     # Store full result keyed by report_id
