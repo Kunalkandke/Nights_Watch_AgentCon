@@ -73,6 +73,8 @@ def analyze():
         "timestamp":  result.get("timestamp", ""),
     })
     session["reports"] = reports[:10]
+    # Store full result keyed by report_id
+    session[f"report_{report_id}"] = result
     session.modified = True
 
     return render_template("report.html", result=result, doc_name=doc_name, report_id=report_id)

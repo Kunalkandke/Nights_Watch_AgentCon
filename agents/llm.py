@@ -1,6 +1,6 @@
 """Shared LLM — reuses existing Gemini API key."""
-import os, sys
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import os, sys, warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 GEMINI_API_KEY = "AIzaSyD4BMcy9_CepkclmgW_zG5CH1J7g61JsDg"
 
