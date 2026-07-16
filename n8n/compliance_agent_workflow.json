@@ -1,0 +1,754 @@
+{
+  "name": "Compliance & Governance Intelligence Agent",
+  "nodes": [
+    {
+      "id": "node-001",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 400],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "compliance-check",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "node-002",
+      "name": "Extract And Validate Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [380, 400],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-001",
+              "name": "document_text",
+              "value": "={{ $json.body.document_text || $json.body.text || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-002",
+              "name": "regulation",
+              "value": "={{ ($json.body.regulation || 'HIPAA').toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-003",
+              "name": "document_id",
+              "value": "={{ $json.body.document_id || 'doc-' + Date.now() }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-004",
+              "name": "input_source",
+              "value": "={{ $json.body.file_url ? 'url' : 'text' }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-005",
+              "name": "file_url",
+              "value": "={{ $json.body.file_url || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-003",
+      "name": "Is File URL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 400],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-001",
+              "leftValue": "={{ $json.input_source }}",
+              "rightValue": "url",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-004",
+      "name": "Fetch Document From URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [940, 250],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Extract And Validate Input').item.json.file_url }}",
+        "responseFormat": "text",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-005",
+      "name": "Split Into Clauses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 400],
+      "parameters": {
+        "jsCode": "// Get document text from either fetch result or direct input\nlet documentText = '';\n\n// Check if we came from Fetch Document From URL\nconst fetchNode = $('Fetch Document From URL');\nif (fetchNode && fetchNode.all && fetchNode.all().length > 0) {\n  try {\n    const fetchedItem = fetchNode.first();\n    if (fetchedItem && fetchedItem.json && fetchedItem.json.data) {\n      documentText = String(fetchedItem.json.data);\n    } else if (fetchedItem && fetchedItem.json && fetchedItem.json.body) {\n      documentText = String(fetchedItem.json.body);\n    }\n  } catch(e) {\n    // fall through to current item\n  }\n}\n\n// If not from fetch, use direct text from current item or Extract node\nif (!documentText || documentText.trim() === '') {\n  documentText = $json.document_text || '';\n}\n\nif (!documentText || documentText.trim() === '') {\n  try {\n    const extractNode = $('Extract And Validate Input').first();\n    documentText = extractNode.json.document_text || '';\n  } catch(e) {\n    documentText = '';\n  }\n}\n\n// Get metadata from Extract And Validate Input node\nlet doc_id = 'doc-unknown';\nlet reg = 'HIPAA';\ntry {\n  const extractItem = $('Extract And Validate Input').first();\n  doc_id = extractItem.json.document_id || 'doc-unknown';\n  reg = extractItem.json.regulation || 'HIPAA';\n} catch(e) {\n  doc_id = $json.document_id || 'doc-unknown';\n  reg = $json.regulation || 'HIPAA';\n}\n\n// Split document into clauses\nlet clauses = [];\n\n// Try splitting on numbered headings first\nconst numberedHeadingPattern = /(?=(?:^|\\n)\\s*(?:Section\\s+\\d+|Article\\s+\\d+|ARTICLE\\s+\\d+|SECTION\\s+\\d+|\\d+\\.\\s+[A-Z]))/;\nconst trySplit = documentText.split(numberedHeadingPattern).map(s => s.trim()).filter(s => s.length > 20);\n\nif (trySplit.length > 1) {\n  clauses = trySplit;\n} else {\n  // Fall back to double newline paragraph breaks\n  clauses = documentText.split(/\\n\\s*\\n/).map(s => s.trim()).filter(s => s.length > 20);\n}\n\n// Filter out empty/whitespace-only clauses\nclauses = clauses.filter(c => c && c.trim().length > 0);\n\n// Limit to max 20 clauses\nif (clauses.length > 20) {\n  clauses = clauses.slice(0, 20);\n}\n\n// If no clauses found, treat entire document as one clause\nif (clauses.length === 0) {\n  clauses = [documentText.trim() || 'No document text provided.'];\n}\n\n// Return array of items, one per clause\nreturn clauses.map((clauseText, index) => ({\n  json: {\n    clause_id: doc_id + '-clause-' + index,\n    clause_text: clauseText,\n    clause_index: index,\n    document_id: doc_id,\n    regulation: reg,\n    total_clauses: clauses.length\n  }\n}));\n"
+      }
+    },
+    {
+      "id": "node-006",
+      "name": "Query Vector Store",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1500, 400],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/functions/v1/match-policy",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({ query_text: $json.clause_text, regulation: $json.regulation, match_count: 3 }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-007",
+      "name": "Handle Vector Store Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1500, 600],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-ve-001",
+              "name": "vector_context",
+              "value": "No regulation excerpts available for this clause.",
+              "type": "string"
+            },
+            {
+              "id": "assign-ve-002",
+              "name": "vector_error",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-008",
+      "name": "Build Context For LLM",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1780, 400],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-ctx-001",
+              "name": "clause_id",
+              "value": "={{ $json.clause_id }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-ctx-002",
+              "name": "clause_text",
+              "value": "={{ $json.clause_text }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-ctx-003",
+              "name": "regulation",
+              "value": "={{ $json.regulation }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-ctx-004",
+              "name": "document_id",
+              "value": "={{ $json.document_id }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-ctx-005",
+              "name": "vector_context",
+              "value": "={{ $json.matches ? $json.matches.map((m, i) => '[' + (i+1) + '] ' + m.section_id + ': ' + m.section_text).join('\\n\\n') : 'No excerpts found.' }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-ctx-006",
+              "name": "clause_index",
+              "value": "={{ $json.clause_index }}",
+              "type": "number"
+            },
+            {
+              "id": "assign-ctx-007",
+              "name": "total_clauses",
+              "value": "={{ $json.total_clauses }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-009a",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [2060, 520],
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "cred-openai-001",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "node-009",
+      "name": "HIPAA Compliance LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1,
+      "position": [2060, 400],
+      "parameters": {
+        "promptType": "define",
+        "text": "=CLAUSE ID: {{ $json.clause_id }}\n\nCLAUSE TEXT:\n{{ $json.clause_text }}\n\nRETRIEVED HIPAA REGULATION EXCERPTS:\n{{ $json.vector_context }}\n\nAnalyze this clause against HIPAA and return the JSON assessment.",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessage",
+              "message": "You are a strict HIPAA compliance analyst. Your job is to analyze contract and policy clauses against HIPAA regulations.\n\nRULES YOU MUST FOLLOW:\n1. You will be given a contract clause and up to 3 HIPAA regulation excerpts retrieved from a knowledge base.\n2. You MUST only cite from the regulation excerpts provided to you. NEVER invent or hallucinate a citation.\n3. If no relevant regulation excerpt is provided, set status to 'Ambiguous' and explanation to 'No matching regulation clause found in knowledge base.'\n4. You MUST return ONLY a valid JSON object — no prose, no markdown fences, no explanation outside the JSON.\n5. The JSON must exactly match this schema:\n{\n  'clause_id': '<string — the clause_id provided to you>',\n  'status': '<exactly one of: Compliant, Non-Compliant, Ambiguous>',\n  'risk_score': <integer 0-100 where 0=no risk, 100=critical violation>,\n  'regulation_citation': '<exact quote or section reference from the provided excerpts only, or N/A if none>',\n  'explanation': '<2-3 sentences explaining your assessment, referencing the specific regulation text>',\n  'suggested_fix': '<concrete actionable fix, or N/A if Compliant>'\n}\n\nRISK SCORE GUIDANCE:\n- Compliant: 0-20\n- Ambiguous: 30-50\n- Non-Compliant with minor issue: 40-60\n- Non-Compliant with major issue (PHI exposure, lack of safeguards, no BAA): 70-100\n\nThe clause to analyze and the retrieved HIPAA excerpts will be in the user message."
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-010",
+      "name": "Parse LLM Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, 400],
+      "parameters": {
+        "jsCode": "// Get LLM text response\nconst rawResponse = $json.text || $json.output || $json.response || '';\n\nlet parsed = null;\n\n// Attempt 1: Direct JSON.parse\ntry {\n  parsed = JSON.parse(rawResponse);\n} catch(e1) {\n  // Attempt 2: Extract from markdown fences\n  try {\n    const fenceMatch = rawResponse.match(/```json\\s*([\\s\\S]*?)\\s*```/);\n    if (fenceMatch && fenceMatch[1]) {\n      parsed = JSON.parse(fenceMatch[1].trim());\n    }\n  } catch(e2) {\n    // Attempt 3: Find first { to last }\n    try {\n      const firstBrace = rawResponse.indexOf('{');\n      const lastBrace = rawResponse.lastIndexOf('}');\n      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {\n        const jsonSubstring = rawResponse.substring(firstBrace, lastBrace + 1);\n        parsed = JSON.parse(jsonSubstring);\n      }\n    } catch(e3) {\n      parsed = null;\n    }\n  }\n}\n\n// Valid status values\nconst validStatuses = ['Compliant', 'Non-Compliant', 'Ambiguous'];\n\n// Fallback if parsing failed entirely\nif (!parsed || typeof parsed !== 'object') {\n  return [{\n    json: {\n      clause_id: $json.clause_id || 'unknown',\n      status: 'Ambiguous',\n      risk_score: 50,\n      regulation_citation: 'N/A',\n      explanation: 'LLM output parsing failed.',\n      suggested_fix: 'Manual review required.',\n      document_id: $json.document_id || '',\n      regulation: $json.regulation || 'HIPAA',\n      clause_index: $json.clause_index || 0,\n      total_clauses: $json.total_clauses || 1\n    }\n  }];\n}\n\n// Validate and sanitize fields\n\n// clause_id: use parsed or fallback to input\nif (!parsed.clause_id || typeof parsed.clause_id !== 'string') {\n  parsed.clause_id = $json.clause_id || 'unknown';\n}\n\n// status: must be one of the valid values\nif (!validStatuses.includes(parsed.status)) {\n  parsed.status = 'Ambiguous';\n}\n\n// risk_score: must be 0-100 integer\nlet score = parseInt(parsed.risk_score, 10);\nif (isNaN(score)) score = 50;\nif (score < 0) score = 0;\nif (score > 100) score = 100;\nparsed.risk_score = score;\n\n// regulation_citation\nif (!parsed.regulation_citation || typeof parsed.regulation_citation !== 'string') {\n  parsed.regulation_citation = 'N/A';\n}\n\n// explanation\nif (!parsed.explanation || typeof parsed.explanation !== 'string') {\n  parsed.explanation = 'No explanation provided.';\n}\n\n// suggested_fix\nif (!parsed.suggested_fix || typeof parsed.suggested_fix !== 'string') {\n  parsed.suggested_fix = parsed.status === 'Compliant' ? 'N/A' : 'Manual review required.';\n}\n\n// Pass through metadata\nparsed.document_id = $json.document_id || '';\nparsed.regulation = $json.regulation || 'HIPAA';\nparsed.clause_index = $json.clause_index !== undefined ? $json.clause_index : 0;\nparsed.total_clauses = $json.total_clauses || 1;\n\nreturn [{ json: parsed }];\n"
+      }
+    },
+    {
+      "id": "node-011",
+      "name": "Aggregate All Clause Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2620, 400],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Collect all items\nconst items = $input.all();\nconst clauseResults = items.map(item => item.json);\n\n// Get metadata from first item\nconst firstItem = clauseResults[0] || {};\nconst document_id = firstItem.document_id || 'unknown';\nconst regulation = firstItem.regulation || 'HIPAA';\nconst total_clauses = clauseResults.length;\n\n// Count by status\nlet non_compliant_count = 0;\nlet ambiguous_count = 0;\nlet compliant_count = 0;\n\n// Weighted risk score calculation\nlet weightedSum = 0;\nlet totalWeight = 0;\n\nfor (const clause of clauseResults) {\n  const status = clause.status || 'Ambiguous';\n  const riskScore = typeof clause.risk_score === 'number' ? clause.risk_score : 50;\n\n  let weight = 1.0;\n  if (status === 'Non-Compliant') {\n    weight = 1.5;\n    non_compliant_count++;\n  } else if (status === 'Ambiguous') {\n    weight = 1.0;\n    ambiguous_count++;\n  } else {\n    weight = 0.5;\n    compliant_count++;\n  }\n\n  weightedSum += riskScore * weight;\n  totalWeight += weight;\n}\n\n// Calculate overall risk score\nconst overall_risk_score = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;\n\n// Determine risk level\nlet risk_level = 'LOW';\nif (overall_risk_score > 70) {\n  risk_level = 'HIGH';\n} else if (overall_risk_score >= 30) {\n  risk_level = 'MEDIUM';\n}\n\nreturn [{\n  json: {\n    document_id,\n    regulation,\n    overall_risk_score,\n    risk_level,\n    total_clauses,\n    non_compliant_count,\n    ambiguous_count,\n    compliant_count,\n    clause_results: clauseResults,\n    analyzed_at: new Date().toISOString()\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "node-012",
+      "name": "Route By Risk Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2900, 400],
+      "parameters": {
+        "mode": "rules",
+        "options": {},
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.risk_level }}",
+                    "rightValue": "HIGH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": false,
+              "outputKey": "0"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.risk_level }}",
+                    "rightValue": "MEDIUM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": false,
+              "outputKey": "1"
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      }
+    },
+    {
+      "id": "node-013",
+      "name": "Send High Risk Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3180, 200],
+      "parameters": {
+        "operation": "postMessage",
+        "channel": "#compliance-alerts",
+        "text": "=\ud83d\udea8 HIGH RISK HIPAA Compliance Issue Detected!\n\nDocument: {{ $json.document_id }}\nOverall Risk Score: {{ $json.overall_risk_score }}/100\nNon-Compliant Clauses: {{ $json.non_compliant_count }} of {{ $json.total_clauses }}\n\nImmediate review required. See compliance dashboard for full report.",
+        "otherOptions": {}
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "cred-slack-001",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "id": "node-014",
+      "name": "Log Medium Risk",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3180, 400],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-med-001",
+              "name": "log_status",
+              "value": "MEDIUM_RISK_LOGGED",
+              "type": "string"
+            },
+            {
+              "id": "assign-med-002",
+              "name": "log_message",
+              "value": "=Medium risk compliance report generated for {{ $json.document_id }} with score {{ $json.overall_risk_score }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-015",
+      "name": "Log Low Risk",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [3180, 600],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-low-001",
+              "name": "log_status",
+              "value": "LOW_RISK_LOGGED",
+              "type": "string"
+            },
+            {
+              "id": "assign-low-002",
+              "name": "log_message",
+              "value": "=Low risk - document {{ $json.document_id }} is largely compliant with score {{ $json.overall_risk_score }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-016",
+      "name": "Store Report In Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3460, 400],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "operation": "insert",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "compliance_reports",
+          "mode": "list"
+        },
+        "dataMode": "autoMapInputData",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "cred-postgres-001",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "id": "node-017",
+      "name": "Respond To Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3740, 400],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, data: { document_id: $('Aggregate All Clause Results').item.json.document_id, regulation: $('Aggregate All Clause Results').item.json.regulation, overall_risk_score: $('Aggregate All Clause Results').item.json.overall_risk_score, risk_level: $('Aggregate All Clause Results').item.json.risk_level, total_clauses: $('Aggregate All Clause Results').item.json.total_clauses, non_compliant_count: $('Aggregate All Clause Results').item.json.non_compliant_count, ambiguous_count: $('Aggregate All Clause Results').item.json.ambiguous_count, compliant_count: $('Aggregate All Clause Results').item.json.compliant_count, clause_results: $('Aggregate All Clause Results').item.json.clause_results, analyzed_at: $('Aggregate All Clause Results').item.json.analyzed_at } }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-018",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [2060, 600],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-err-001",
+              "name": "error_response",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "assign-err-002",
+              "name": "error_message",
+              "value": "Compliance analysis failed: LLM or vector store unavailable. Please retry.",
+              "type": "string"
+            },
+            {
+              "id": "assign-err-003",
+              "name": "clause_id",
+              "value": "={{ $json.clause_id }}",
+              "type": "string"
+            },
+            {
+              "id": "assign-err-004",
+              "name": "status",
+              "value": "Ambiguous",
+              "type": "string"
+            },
+            {
+              "id": "assign-err-005",
+              "name": "risk_score",
+              "value": 50,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract And Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract And Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is File URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is File URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Document From URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split Into Clauses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Document From URL": {
+      "main": [
+        [
+          {
+            "node": "Split Into Clauses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Clauses": {
+      "main": [
+        [
+          {
+            "node": "Query Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Vector Store": {
+      "main": [
+        [
+          {
+            "node": "Build Context For LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Vector Store Error": {
+      "main": [
+        [
+          {
+            "node": "Build Context For LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Context For LLM": {
+      "main": [
+        [
+          {
+            "node": "HIPAA Compliance LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "HIPAA Compliance LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HIPAA Compliance LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM Output": {
+      "main": [
+        [
+          {
+            "node": "Aggregate All Clause Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate All Clause Results": {
+      "main": [
+        [
+          {
+            "node": "Route By Risk Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Risk Level": {
+      "main": [
+        [
+          {
+            "node": "Send High Risk Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Medium Risk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Low Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send High Risk Alert": {
+      "main": [
+        [
+          {
+            "node": "Store Report In Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Medium Risk": {
+      "main": [
+        [
+          {
+            "node": "Store Report In Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Low Risk": {
+      "main": [
+        [
+          {
+            "node": "Store Report In Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Report In Postgres": {
+      "main": [
+        [
+          {
+            "node": "Respond To Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "compliance-governance-agent-v1"
+  },
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 1,
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "tag-001",
+      "name": "compliance"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "tag-002",
+      "name": "hipaa"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "tag-003",
+      "name": "governance"
+    }
+  ]
+}
