@@ -23,7 +23,13 @@ def _load_key() -> str:
 
 GEMINI_API_KEY = _load_key()
 
-MODELS = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"]
+MODELS = [
+    "gemini-2.5-flash-lite",   # lightest quota — try first
+    "gemini-2.0-flash-lite",   # very low quota usage
+    "gemini-2.0-flash",        # fast, generous quota
+    "gemini-flash-lite-latest", # alias fallback
+    "gemini-2.5-flash",        # main model (may hit quota)
+]
 
 def call_gemini(prompt: str, fallback: str = "") -> str:
     if not GEMINI_API_KEY:

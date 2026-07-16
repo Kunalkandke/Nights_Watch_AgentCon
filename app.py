@@ -32,7 +32,7 @@ app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), "templates"),
             static_folder=os.path.join(os.path.dirname(__file__), "static"))
 
-app.secret_key = "medcomply-agentcon-2026"
+app.secret_key = os.environ.get("SECRET_KEY", "medcomply-agentcon-2026-local")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
