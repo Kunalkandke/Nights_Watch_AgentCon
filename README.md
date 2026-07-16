@@ -1,4 +1,4 @@
-# legal AI 🏥
+# LegalAI - AI-Driven Compliance & Governance Intelligence  Agent for Medical Injury and Compensation Process🏥
 ### Healthcare Compliance & Governance Intelligence Agent
 **AgentCon 2026 — National AI Hackathon**
 *Theme: Building Enterprise AI Agents, ML Systems & Workflow Automation for Bharat*
