@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MedComply AI{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+{% block body %}
+<div class="container">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2rem;padding-top:.5rem">
+    <div>
+      <h1 style="font-size:1.6rem;font-weight:800;color:#0f2744">Compliance Intelligence Dashboard</h1>
+      <p style="color:#64748b;margin-top:.3rem;font-size:.9rem">Healthcare Document Audit & Governance · Powered by 4-Agent LangGraph Pipeline</p>
+    </div>
+    <a href="/analyze" class="btn btn-primary" style="font-size:.9rem;padding:.7rem 1.6rem">
+      <span style="font-size:1.1rem">📤</span> Analyze Document
+    </a>
+  </div>
+
+  <!-- Agent Pipeline Visual -->
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="card-header">
+      <span style="font-weight:700;color:#0f2744">🔗 4-Agent LangGraph Workflow</span>
+      <span class="badge badge-blue">Active</span>
+    </div>
+    <div class="card-body" style="padding:1.2rem 1.5rem">
+      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+        {% set agents = [
+          ('📥','Intake Agent','Extracts patient, doctor, diagnosis, consent, signatures','blue'),
+          ('✅','Compliance Agent','RAG-powered check against hospital SOPs & medical rules','green'),
+          ('⚠️','Risk Agent','Classifies HIGH/MEDIUM/LOW risk with factor analysis','yellow'),
+          ('📋','Audit Agent','Generates chronology, report, executive summary','purple'),
+        ] %}
+        {% for icon, name, desc, color in agents %}
+        <div style="flex:1;min-width:180px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:1rem;text-align:center">
+          <div style="font-size:1.8rem;margin-bottom:.4rem">{{ icon }}</div>
+          <div style="font-weight:700;font-size:.85rem;color:#0f2744">{{ name }}</div>
+          <div style="font-size:.75rem;color:#64748b;margin-top:.3rem">{{ desc }}</div>
+        </div>
+        {% if not loop.last %}
+        <div style="font-size:1.5rem;color:#94a3b8;font-weight:700">→</div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Reports -->
+  <div class="card">
+    <div class="card-header">
+      <span style="font-weight:700;color:#0f2744">📊 Recent Compliance Reports</span>
+      <span style="font-size:.8rem;color:#64748b">{{ reports|length }} reports</span>
+    </div>
+    {% if reports %}
+    <table class="table">
+      <thead><tr>
+        <th>Document</th><th>Compliance Score</th><th>Risk Level</th><th>Timestamp</th><th>Action</th>
+      </tr></thead>
+      <tbody>
+        {% for r in reports %}
+        <tr>
+          <td>
+            <div style="font-weight:600;color:#0f2744">{{ r.doc_name }}</div>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:.8rem">
+              <div class="progress-bar" style="width:120px">
+                <div class="progress-fill" style="width:{{ r.score }}%;background:{% if r.score >= 80 %}#22c55e{% elif r.score >= 60 %}#f59e0b{% else %}#ef4444{% endif %}"></div>
+              </div>
+              <span style="font-weight:700;color:{% if r.score >= 80 %}#15803d{% elif r.score >= 60 %}#a16207{% else %}#dc2626{% endif %}">{{ r.score }}/100</span>
+            </div>
+          </td>
+          <td>
+            {% if r.risk == 'HIGH' %}
+            <span class="badge badge-red">🔴 HIGH</span>
+            {% elif r.risk == 'MEDIUM' %}
+            <span class="badge badge-yellow">🟡 MEDIUM</span>
+            {% else %}
+            <span class="badge badge-green">🟢 LOW</span>
+            {% endif %}
+          </td>
+          <td style="color:#64748b;font-size:.85rem">{{ r.timestamp }}</td>
+          <td><a href="/analyze" class="btn btn-outline" style="padding:.3rem .8rem;font-size:.8rem">Re-analyze</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding:4rem;text-align:center">
+      <div style="font-size:3rem;margin-bottom:1rem">📋</div>
+      <h3 style="color:#0f2744;margin-bottom:.5rem">No reports yet</h3>
+      <p style="color:#64748b;margin-bottom:1.5rem;font-size:.9rem">Upload a medical document to run the 4-agent compliance workflow</p>
+      <a href="/analyze" class="btn btn-primary">📤 Analyze First Document</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Vault Status -->
+  <div class="grid-2" style="margin-top:1.5rem">
+    <div class="card">
+      <div class="card-header"><span style="font-weight:700;color:#0f2744">📚 Compliance Knowledge Base</span></div>
+      <div class="card-body">
+        <div style="display:flex;flex-direction:column;gap:.7rem">
+          {% set vault_items = [
+            ('Medical Assessment Guidelines','assessment_guidelines.pdf','green'),
+            ('Hospital SOP Manual (AIIMS)','sop-manual-for-mlcs.pdf','green'),
+            ('Hospital Discharge Format','D.-E-Mitra_FORMAT.pdf','green'),
+            ('Motor Vehicles Act','motor_vehicle_act.pdf','blue'),
+            ('MACT Award Judgments','AWARDINMOTORACCIDENTCASES.pdf','blue'),
+          ] %}
+          {% for name, file, color in vault_items %}
+          <div style="display:flex;align-items:center;gap:.8rem;padding:.6rem;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">
+            <span style="font-size:1.2rem">📄</span>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:.85rem;color:#1e293b">{{ name }}</div>
+              <div style="font-size:.75rem;color:#64748b">{{ file }}</div>
+            </div>
+            <span class="badge badge-{{ color }}">Active</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span style="font-weight:700;color:#0f2744">🏗️ System Architecture</span></div>
+      <div class="card-body">
+        <div style="display:flex;flex-direction:column;gap:.6rem;font-size:.875rem">
+          {% set arch = [
+            ('🤖','Orchestration','LangGraph StateGraph'),
+            ('📄','PDF Processing','PyMuPDF (reused)'),
+            ('🧠','AI Model','Google Gemini 2.5 Flash'),
+            ('📚','RAG Source','Vault PDFs (5 documents)'),
+            ('🌐','Backend','Flask (reused)'),
+            ('💾','State','LangGraph WorkflowState'),
+          ] %}
+          {% for icon, label, value in arch %}
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem .8rem;background:#f8fafc;border-radius:8px">
+            <span>{{ icon }} <span style="color:#475569;font-weight:500">{{ label }}</span></span>
+            <span style="font-weight:600;color:#0f2744;font-size:.8rem">{{ value }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
