@@ -13,6 +13,19 @@ Indian hospitals spend hours manually reviewing medical documents before interna
 
 ---
 
+## Screenshots
+
+### Compliance Dashboard
+![Audit Dashboard](audit.png)
+
+### Compliance Audit Report — Top Section
+![Audit Report](audit2.png)
+
+### Full Report — Violations & Recommendations
+![Report Detail](Report.png)
+
+---
+
 ## System Architecture
 
 ```mermaid
